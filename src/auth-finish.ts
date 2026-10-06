@@ -19,7 +19,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 
 // Loads a .env from the current working directory, if present. Real
 // environment variables always take precedence.
-dotenv.config();
+if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
 const cfg = loadEnv(process.env);
 const verifier = (process.argv[2] ?? process.env.ETRADE_VERIFIER ?? "").trim();
 if (!verifier) {

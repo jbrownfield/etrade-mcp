@@ -31,9 +31,9 @@ describe.skipIf(!runIntegration)("integration (live sandbox)", () => {
   // suite. Calling setup() only from it() bodies means a skipped run never
   // touches credentials. (Mirrors the order-preview block below.)
   const setup = () => {
-    dotenv.config();
+    if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
     const cfg = loadEnv(process.env);
-    const token = readToken(cfg.tokenFilePath);
+    const token = readToken(cfg.tokenFilePath, cfg.tokenEncryptionKey);
     return { cfg, token };
   };
 
@@ -65,9 +65,9 @@ describe.skipIf(!runIntegration)("integration (live sandbox)", () => {
 describe.skipIf(!runOrderPreview)("integration — order preview (no placement)", () => {
   it("previews a deliberately-far-from-market BUY LIMIT and gets a previewId", async () => {
     // Loaded lazily inside the test so a skipped run never touches credentials.
-    dotenv.config();
+    if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
     const cfg = loadEnv(process.env);
-    const token = readToken(cfg.tokenFilePath);
+    const token = readToken(cfg.tokenFilePath, cfg.tokenEncryptionKey);
     if (!token) throw new Error("no token");
     const client = createClient(cfg, token);
     const request = buildPreviewRequest({
@@ -92,9 +92,9 @@ describe.skipIf(!runOrderPreview)("integration — order preview (no placement)"
 describe.skipIf(!runOrderSpreadPreview)("integration — spread preview (no placement)", () => {
   it("previews a 2-leg NET_DEBIT vertical and gets a previewId", async () => {
     // Loaded lazily inside the test so a skipped run never touches credentials.
-    dotenv.config();
+    if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
     const cfg = loadEnv(process.env);
-    const token = readToken(cfg.tokenFilePath);
+    const token = readToken(cfg.tokenFilePath, cfg.tokenEncryptionKey);
     if (!token) throw new Error("no token");
     const client = createClient(cfg, token);
 

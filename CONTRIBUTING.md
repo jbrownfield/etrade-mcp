@@ -10,6 +10,8 @@ bun install              # install deps
 bun test src/__tests__   # run the unit test suite (integration test is separate, see below)
 bun run build             # bundle dist/ (node-portable, target: node, format: esm)
 bun run typecheck         # tsc --noEmit
+node scripts/verify-node-storage.mjs  # Node crypto behavior, after build
+node scripts/verify-node-login.mjs    # npm-style symlink invocation, after build
 ```
 
 `bun test src/__tests__` should show all tests passing (a handful of integration-only cases are
@@ -37,6 +39,7 @@ one.
 
 ```bash
 bun run build
+ETRADE_ENV=prod ETRADE_ALLOW_ORDERS=0 ETRADE_LOAD_DOTENV=0 \
 ETRADE_PROD_API_KEY=dummy ETRADE_PROD_API_SECRET=dummy \
   node docs/demo-handshake.mjs node dist/mcp.js
 ```

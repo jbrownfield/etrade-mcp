@@ -17,14 +17,14 @@ import { createClient } from "../src/client.js";
 
 // Loads a .env from the current working directory, if present. Real
 // environment variables always take precedence.
-dotenv.config();
+if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
 const cfg = loadEnv(process.env);
 if (cfg.env !== "sandbox") {
   console.error("Refuse: only capture against sandbox.");
   process.exit(1);
 }
-const token = readToken(cfg.tokenFilePath);
-if (!token || isTokenExpired(token)) {
+const token = readToken(cfg.tokenFilePath, cfg.tokenEncryptionKey);
+if (!token || token.env !== cfg.env || isTokenExpired(token)) {
   console.error("No valid sandbox token. Run `bun run auth` first.");
   process.exit(1);
 }

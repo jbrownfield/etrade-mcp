@@ -25,6 +25,12 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Node token storage regression
+        run: node scripts/verify-node-storage.mjs
+
+      - name: Node disabled login regression
+        run: node scripts/verify-node-login.mjs
+
       # package.json declares no `engines.node`, so this smoke deliberately runs
       # under ubuntu-latest's pre-installed Node rather than pinning one via
       # actions/setup-node — the same `node dist/mcp.js` runtime real consumers
@@ -36,6 +42,9 @@ jobs:
           # at process startup — no network call happens before the handshake's
           # initialize/tools/list responses come back, so no real E*TRADE
           # credentials are needed to exercise the handshake.
+          ETRADE_ENV: prod
+          ETRADE_ALLOW_ORDERS: "0"
+          ETRADE_LOAD_DOTENV: "0"
           ETRADE_PROD_API_KEY: ci-smoke-dummy-key
           ETRADE_PROD_API_SECRET: ci-smoke-dummy-secret
         run: node docs/demo-handshake.mjs node dist/mcp.js

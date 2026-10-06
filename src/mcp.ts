@@ -45,7 +45,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
       "Reads (accounts/balances/positions/transactions/orders) are always on; order\n" +
       "placement (preview/place/cancel) is a separate, explicit opt-in.\n\n" +
       "Requires E*TRADE developer credentials and a stored access token in the environment:\n" +
-      "  ETRADE_ENV=sandbox|prod (default prod)\n" +
+      "  ETRADE_ENV=sandbox|prod (required)\n" +
       "  ETRADE_SANDBOX_API_KEY / ETRADE_SANDBOX_API_KEY_SECRET   (sandbox)\n" +
       "  ETRADE_PROD_API_KEY / ETRADE_PROD_API_SECRET             (prod)\n" +
       "  ETRADE_ALLOW_ORDERS=1                                    (opt-in: enable order tools)\n\n" +
@@ -62,7 +62,7 @@ if (process.argv.includes("--version") || process.argv.includes("-v")) {
 // Load a .env from the current working directory, if present. Real environment
 // variables (e.g. set by the MCP client config) always take precedence over
 // anything dotenv loads.
-dotenv.config();
+if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
 
 const cfg = loadEnv(process.env);
 
@@ -81,11 +81,11 @@ function getClient(): EtradeClient | Error {
     );
   }
   if (mtimeMs !== cachedMtimeMs) {
-    cachedToken = readToken(cfg.tokenFilePath);
+    cachedToken = readToken(cfg.tokenFilePath, cfg.tokenEncryptionKey);
     cachedMtimeMs = mtimeMs;
     cachedClient = null;
   }
-  if (!cachedToken) {
+  if (!cachedToken || cachedToken.env !== cfg.env) {
     return new Error(
       `ETRADE token unreadable for env=${cfg.env}. Run: ETRADE_ENV=${cfg.env} bun run auth`,
     );

@@ -2,7 +2,11 @@ import { test, expect, describe } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { renewAccessToken } from "../auth-renew.js";
+import { renewAccessToken as renewAt } from "../auth-renew.js";
+// Fix the clock so renewal tests exercise a valid token on any execution date.
+function renewAccessToken(cfg: EtradeConfig, token: Parameters<typeof renewAt>[1], fetchImpl: typeof fetch, now = new Date("2026-06-17T15:00:00Z")) {
+  return renewAt(cfg, token, fetchImpl, now);
+}
 import type { EtradeConfig } from "../env.js";
 import type { StoredToken } from "../tokens.js";
 
@@ -82,13 +86,13 @@ describe("renewAccessToken", () => {
     expect(written.oauth_token_secret).toBe("NEW_SECRET");
   });
 
-  test("a 200 with an EMPTY body still counts as renewed and keeps the existing token (E*TRADE sometimes returns no body)", async () => {
+  test("a 200 with an EMPTY body is unconfirmed and keeps the existing token", async () => {
     const cfg = tmpCfg();
     writeFileSync(cfg.tokenFilePath, JSON.stringify(tokenOf()));
     const fakeFetch = (async () => new Response("", { status: 200 })) as unknown as typeof fetch;
 
     const r = await renewAccessToken(cfg, tokenOf(), fakeFetch);
-    expect(r.renewed).toBe(true);
+    expect(r.renewed).toBe(false);
     const written = JSON.parse(readFileSync(cfg.tokenFilePath, "utf8")) as StoredToken;
     expect(written.oauth_token).toBe("OLD_TOKEN");
   });

@@ -76,7 +76,7 @@ describe("client.getBalance", () => {
     expect(result).toEqual(fixture);
   });
 
-  it("passes instType=IRA when provided", async () => {
+  it("passes the BROKERAGE institution type with realTimeNAV disabled", async () => {
     let capturedUrl = "";
     globalThis.fetch = mock(async (input: RequestInfo | URL) => {
       capturedUrl = typeof input === "string" ? input : input.toString();
@@ -84,9 +84,9 @@ describe("client.getBalance", () => {
     }) as unknown as typeof fetch;
 
     const client = createClient(cfg, token);
-    await client.getBalance({ accountIdKey: "abc", instType: "IRA", realTimeNAV: false });
+    await client.getBalance({ accountIdKey: "abc", instType: "BROKERAGE", realTimeNAV: false });
     expect(capturedUrl).toBe(
-      "https://apisb.etrade.com/v1/accounts/abc/balance?instType=IRA&realTimeNAV=false",
+      "https://apisb.etrade.com/v1/accounts/abc/balance?instType=BROKERAGE&realTimeNAV=false",
     );
   });
 });

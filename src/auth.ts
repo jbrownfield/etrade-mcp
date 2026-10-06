@@ -12,7 +12,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
       "the E*TRADE authorize URL, waits for you to open it and paste back the 5-digit\n" +
       "verifier, and writes the access token to ~/.config/etrade-mcp/tokens.<env>.json.\n\n" +
       "Requires E*TRADE developer credentials in the environment first:\n" +
-      "  ETRADE_ENV=sandbox|prod (default prod)\n" +
+      "  ETRADE_ENV=sandbox|prod (required)\n" +
       "  ETRADE_SANDBOX_API_KEY / ETRADE_SANDBOX_API_KEY_SECRET   (sandbox)\n" +
       "  ETRADE_PROD_API_KEY / ETRADE_PROD_API_SECRET             (prod)\n",
   );
@@ -21,7 +21,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 
 // Loads a .env from the current working directory, if present. Real
 // environment variables always take precedence.
-dotenv.config();
+if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
 const cfg = loadEnv(process.env);
 console.error(`[etrade-mcp] env=${cfg.env}`);
 console.error(`[etrade-mcp] requesting request token from ${cfg.apiBaseUrl}...`);

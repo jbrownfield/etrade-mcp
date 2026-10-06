@@ -30,14 +30,6 @@ describe("loadEnv", () => {
     expect(cfg.apiBaseUrl).toBe("https://api.etrade.com");
   });
 
-  it("defaults to prod when ETRADE_ENV is unset", () => {
-    const cfg = loadEnv({
-      ETRADE_PROD_API_KEY: "pk",
-      ETRADE_PROD_API_SECRET: "ps",
-    });
-    expect(cfg.env).toBe("prod");
-    expect(cfg.apiBaseUrl).toBe("https://api.etrade.com");
-  });
 
   it("throws when the required credentials for the chosen env are missing", () => {
     expect(() => loadEnv({ ETRADE_ENV: "prod" })).toThrow(/ETRADE_PROD_API_KEY/);

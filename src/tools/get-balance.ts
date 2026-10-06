@@ -4,7 +4,7 @@ import type { EtradeClient } from "../client.js";
 
 const argsSchema = {
   accountIdKey: z.string().describe("E*TRADE accountIdKey (not accountId) from etrade_list_accounts."),
-  instType: z.enum(["BROKERAGE", "IRA"]).optional().describe("Default BROKERAGE."),
+  instType: z.enum(["BROKERAGE"]).optional().describe("Default BROKERAGE."),
   realTimeNAV: z.boolean().optional().describe("Default true."),
 };
 

@@ -1,5 +1,6 @@
 import { resolve, dirname } from "node:path";
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
+import { readSecret, writeSecret } from "./secret-storage.js";
 
 import type { EtradeConfig } from "./env.js";
 import { signRequest } from "./oauth.js";
@@ -22,8 +23,8 @@ export async function fetchRequestToken(
     null,
     { url: reqTokenUrl, method: "GET", extraParams: { oauth_callback: "oob" } },
   );
-  const res = await fetchImpl(reqTokenUrl, { headers: { Authorization: auth } });
-  if (!res.ok) throw new Error(`request_token failed: ${res.status} ${await res.text()}`);
+  const res = await fetchImpl(reqTokenUrl, { headers: { Authorization: auth }, signal: AbortSignal.timeout(10_000), redirect: "error" });
+  if (!res.ok) throw new Error(`request_token failed: ${res.status}`);
   const params = new URLSearchParams(await res.text());
   const requestToken = params.get("oauth_token");
   const requestTokenSecret = params.get("oauth_token_secret");
@@ -45,8 +46,8 @@ export async function exchangeVerifier(
     { oauth_token: request.requestToken, oauth_token_secret: request.requestTokenSecret },
     { url: accessUrl, method: "GET", extraParams: { oauth_verifier: verifier } },
   );
-  const res = await fetchImpl(accessUrl, { headers: { Authorization: auth } });
-  if (!res.ok) throw new Error(`access_token failed: ${res.status} ${await res.text()}`);
+  const res = await fetchImpl(accessUrl, { headers: { Authorization: auth }, signal: AbortSignal.timeout(10_000), redirect: "error" });
+  if (!res.ok) throw new Error(`access_token failed: ${res.status}`);
   const params = new URLSearchParams(await res.text());
   const accessToken = params.get("oauth_token");
   const accessTokenSecret = params.get("oauth_token_secret");
@@ -58,7 +59,7 @@ export async function exchangeVerifier(
     oauth_token_secret: accessTokenSecret,
     obtained_at: new Date().toISOString(),
     expires_at_midnight_et: expiresAt,
-  });
+  }, cfg.tokenEncryptionKey);
   return { expiresAt };
 }
 
@@ -68,13 +69,13 @@ export function pendingPath(cfg: EtradeConfig): string {
 }
 export function writePending(cfg: EtradeConfig, r: RequestTokenResult): void {
   const p = pendingPath(cfg);
-  mkdirSync(dirname(p), { recursive: true, mode: 0o700 });
-  writeFileSync(p, JSON.stringify(r, null, 2), { mode: 0o600 });
+  writeSecret(p, r, cfg.tokenEncryptionKey);
 }
 export function readPending(cfg: EtradeConfig): RequestTokenResult | null {
   try {
-    const parsed = JSON.parse(readFileSync(pendingPath(cfg), "utf8")) as RequestTokenResult;
-    if (!parsed.requestToken || !parsed.requestTokenSecret) return null;
+    const parsed = readSecret(pendingPath(cfg), cfg.tokenEncryptionKey) as RequestTokenResult;
+    if (!parsed || typeof parsed.requestToken !== "string" || !parsed.requestToken ||
+        typeof parsed.requestTokenSecret !== "string" || !parsed.requestTokenSecret) return null;
     return parsed;
   } catch {
     return null;

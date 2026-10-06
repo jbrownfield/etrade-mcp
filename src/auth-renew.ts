@@ -1,6 +1,6 @@
 import type { EtradeConfig } from "./env.js";
 import { signRequest } from "./oauth.js";
-import { writeToken, type StoredToken } from "./tokens.js";
+import { writeToken, isTokenExpired, type StoredToken } from "./tokens.js";
 
 /**
  * Reactivate an IDLE access token via E*TRADE's `renew_access_token` — the browser-free recovery for the
@@ -17,10 +17,15 @@ export async function renewAccessToken(
   cfg: EtradeConfig,
   token: StoredToken | null,
   fetchImpl: typeof fetch = fetch,
+  now: Date = new Date(),
 ): Promise<{ renewed: boolean; reason?: string }> {
   if (!token?.oauth_token || !token?.oauth_token_secret) {
     return { renewed: false, reason: "no token to renew" };
   }
+
+  if (token.env !== cfg.env) return { renewed: false, reason: "token environment mismatch" };
+
+  if (isTokenExpired(token, now)) return { renewed: false, reason: "token expired; browser authorization required" };
 
   const url = `${cfg.apiBaseUrl}/oauth/renew_access_token`;
   const auth = signRequest(
@@ -34,31 +39,39 @@ export async function renewAccessToken(
     res = await fetchImpl(url, {
       headers: { Authorization: auth, Accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
+      redirect: "error",
     });
-  } catch (e) {
-    return { renewed: false, reason: `renew request failed: ${String(e).slice(0, 200)}` };
+  } catch {
+    return { renewed: false, reason: "renew request failed" };
   }
 
   if (!res.ok) {
-    const body = (await res.text().catch(() => "")).slice(0, 300);
     // A 401 here means the token is past the point renew can save (midnight-expired or invalidated) — the
     // caller must do the full browser re-consent. We deliberately do NOT touch the token file on failure.
-    return { renewed: false, reason: `renew ${res.status}: ${body}` };
+    return { renewed: false, reason: `renew failed (HTTP ${res.status})` };
   }
 
-  // Success. E*TRADE usually echoes the (same) token pair; honor a changed pair if present, else keep the
-  // existing one. Either way, reset obtained_at so the idle clock restarts and keep the midnight expiry.
-  const body = await res.text().catch(() => "");
+  // Require a complete returned pair or the documented confirmation before updating storage.
+  // Preserve the existing midnight expiry; renewal only reactivates an idle token.
+  let body: string;
+  try { body = (await res.text()).trim(); }
+  catch { return { renewed: false, reason: "renew response could not be read" }; }
   const params = new URLSearchParams(body);
-  const renewedToken = params.get("oauth_token") || token.oauth_token;
-  const renewedSecret = params.get("oauth_token_secret") || token.oauth_token_secret;
+  const returnedToken = params.get("oauth_token");
+  const returnedSecret = params.get("oauth_token_secret");
+  const unchanged = body === "Access Token has been renewed";
+  if (!unchanged && (!returnedToken || !returnedSecret)) {
+    return { renewed: false, reason: "invalid renewal response" };
+  }
+  const renewedToken = unchanged ? token.oauth_token : returnedToken!;
+  const renewedSecret = unchanged ? token.oauth_token_secret : returnedSecret!;
 
   writeToken(cfg.tokenFilePath, {
     env: token.env,
     oauth_token: renewedToken,
     oauth_token_secret: renewedSecret,
-    obtained_at: new Date().toISOString(),
+    obtained_at: now.toISOString(),
     expires_at_midnight_et: token.expires_at_midnight_et,
-  });
+  }, cfg.tokenEncryptionKey);
   return { renewed: true };
 }

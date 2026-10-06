@@ -4,11 +4,12 @@ import type { ListOrdersParams, PlaceOrderRequest, PreviewOrderRequest } from ".
 
 export type BalanceParams = {
   accountIdKey: string;
-  instType?: "BROKERAGE" | "IRA";
+  instType?: "BROKERAGE";
   realTimeNAV?: boolean;
 };
 
 export type PortfolioParams = {
+  pageNumber?: number;
   accountIdKey: string;
   count?: number;
   sortBy?: string;
@@ -48,8 +49,39 @@ export type EtradeClient = {
   cancelOrder(accountIdKey: string, orderId: number): Promise<unknown>;
 };
 
-export function createClient(cfg: EtradeConfig, token: TokenPair): EtradeClient {
+export function createClient(config: EtradeConfig, token: TokenPair): EtradeClient {
+  // A client retains the policy it was created with even if callers reuse config.
+  const cfg = { ...config };
+  const origin = cfg.env === "prod" ? "https://api.etrade.com" : "https://apisb.etrade.com";
+  if (cfg.apiBaseUrl !== origin) throw new Error("Unexpected E*TRADE API origin.");
+  const allowed = cfg.allowedAccountIds === undefined ? undefined : new Set(cfg.allowedAccountIds);
+  function identifier(id: string): string {
+    if (typeof id !== "string" || !/^[A-Za-z0-9_-]+$/.test(id)) throw new Error("Invalid API identifier.");
+    return encodeURIComponent(id);
+  }
+  function account(id: string): string {
+    const segment = identifier(id);
+    if (allowed && !allowed.has(id)) throw new Error("Account is not allowed by this server.");
+    return segment;
+  }
+  function validateRoute(path: string, write = false): void {
+    const pathname = path.split("?")[0];
+    const valid = write
+      ? /^\/v1\/accounts\/[A-Za-z0-9_-]+\/orders\/(preview|place|cancel)$/.test(pathname)
+      : pathname === "/v1/accounts/list" ||
+        /^\/v1\/accounts\/[A-Za-z0-9_-]+\/(balance|portfolio|orders|transactions(?:\/[A-Za-z0-9_-]+)?)$/.test(pathname) ||
+        /^\/v1\/market\/quote\/[A-Z0-9%:,._-]+$/.test(pathname);
+    if (!valid || new URL(path, origin).pathname !== pathname) throw new Error("Unexpected E*TRADE API route.");
+  }
+  function errorStatus(status: number, body: string): string {
+    let code: unknown;
+    try { code = JSON.parse(body)?.Error?.code; } catch { /* No free-form response data in errors. */ }
+    const numeric = typeof code === "number" && Number.isSafeInteger(code) && code >= 0 && code <= 999999999 ||
+      typeof code === "string" && /^\d{1,9}$/.test(code);
+    return `HTTP ${status}${numeric ? `; code ${code}` : ""}`;
+  }
   async function get<T = unknown>(path: string): Promise<T> {
+    validateRoute(path);
     const url = `${cfg.apiBaseUrl}${path}`;
     const auth = signRequest(
       { consumerKey: cfg.consumerKey, consumerSecret: cfg.consumerSecret },
@@ -59,25 +91,25 @@ export function createClient(cfg: EtradeConfig, token: TokenPair): EtradeClient 
     const res = await fetch(url, {
       headers: { Authorization: auth, Accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
+      redirect: "error",
     });
     if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`E*TRADE ${res.status}: ${body.slice(0, 500)}`);
+      throw new Error(`E*TRADE request failed (${errorStatus(res.status, await res.text().catch(() => ""))}).`);
     }
-    return (await res.json()) as T;
+    if (res.status === 204 && path.includes("/portfolio")) return { PortfolioResponse: { AccountPortfolio: [] } } as T;
+    if (res.status === 204 && /\/transactions(?:\?|$)/.test(path)) return { TransactionListResponse: { Transaction: [] } } as T;
+    try { return (await res.json()) as T; }
+    catch { throw new Error("E*TRADE returned an invalid JSON response."); }
   }
 
-  // POST/PUT with a JSON body. The JSON body is intentionally NOT part of the
-  // OAuth signature base string (only form-urlencoded bodies are) — see oauth.ts.
-  // E*TRADE negotiates JSON via the Accept header (same as the read GETs). Only
-  // the header is used; a non-JSON response is surfaced raw (not silently handled),
-  // which matters on the write path: a place could have reached the market even if
-  // the body fails to parse, so the caller must see the payload, not a cryptic error.
+  // Never automatically retry a write whose outcome is uncertain.
   async function send<T = unknown>(
     path: string,
     method: "POST" | "PUT",
     body: unknown,
   ): Promise<T> {
+    if (!cfg.allowOrders) throw new Error("Order writes are disabled.");
+    validateRoute(path, true);
     const url = `${cfg.apiBaseUrl}${path}`;
     const auth = signRequest(
       { consumerKey: cfg.consumerKey, consumerSecret: cfg.consumerSecret },
@@ -93,19 +125,12 @@ export function createClient(cfg: EtradeConfig, token: TokenPair): EtradeClient 
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
+      redirect: "error",
     });
     const text = await res.text();
-    if (!res.ok) {
-      // E*TRADE returns an HTML page (not JSON) on rate-limit/auth errors — capture it raw.
-      throw new Error(`E*TRADE ${res.status}: ${text.slice(0, 800)}`);
-    }
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      // 200 but non-JSON (XML/HTML). On a place this may mean the order DID reach
-      // the market — surface the raw body so the caller can verify, never swallow it.
-      throw new Error(`E*TRADE returned a non-JSON 200 response: ${text.slice(0, 800)}`);
-    }
+    if (!res.ok) throw new Error(`E*TRADE write failed (${errorStatus(res.status, text)}); verify order status before retrying.`);
+    try { return JSON.parse(text) as T; }
+    catch { throw new Error("E*TRADE returned an invalid write response; verify order status before retrying because the outcome is unknown."); }
   }
 
   function qs(params: Record<string, string | number | boolean | undefined>): string {
@@ -118,20 +143,31 @@ export function createClient(cfg: EtradeConfig, token: TokenPair): EtradeClient 
   }
 
   return {
-    listAccounts: () => get("/v1/accounts/list"),
+    listAccounts: async () => {
+      const response = await get<{ AccountListResponse?: { Accounts?: { Account?: Array<{ accountIdKey: string }> } } }>("/v1/accounts/list");
+      if (!allowed) return response;
+      const accounts = response?.AccountListResponse?.Accounts?.Account;
+      if (!Array.isArray(accounts) || accounts.some(a => !a || typeof a.accountIdKey !== "string" || !/^[A-Za-z0-9_-]+$/.test(a.accountIdKey))) throw new Error("Invalid account list response.");
+      const discovered = new Set(accounts.map(a => a?.accountIdKey));
+      if ([...allowed].some(id => !discovered.has(id))) throw new Error("A configured account is unavailable for this login.");
+      return { AccountListResponse: { Accounts: { Account: accounts.filter(a => allowed.has(a.accountIdKey)) } } };
+    },
     // Option contracts quote via colon notation (e.g. TKO:2027:1:15:CALL:210) — keep the
     // colons literal in the path; E*TRADE rejects them percent-encoded.
-    getQuote: (symbols) =>
+    getQuote: async (symbols) =>
       get(
         `/v1/market/quote/${symbols
           .map((s) => encodeURIComponent(s.toUpperCase()).replace(/%3A/gi, ":"))
           .join(",")}`,
       ),
-    getBalance: ({ accountIdKey, instType = "BROKERAGE", realTimeNAV = true }) =>
-      get(`/v1/accounts/${accountIdKey}/balance${qs({ instType, realTimeNAV })}`),
-    getPortfolio: ({
+    getBalance: async ({ accountIdKey, instType = "BROKERAGE", realTimeNAV = true }) => {
+      if (instType !== "BROKERAGE") throw new Error("instType must be BROKERAGE, including for IRA accounts.");
+      return get(`/v1/accounts/${account(accountIdKey)}/balance${qs({ instType, realTimeNAV })}`);
+    },
+    getPortfolio: async ({
       accountIdKey,
       count = 50,
+      pageNumber,
       sortBy = "SYMBOL",
       sortOrder = "ASC",
       marketSession = "REGULAR",
@@ -140,8 +176,9 @@ export function createClient(cfg: EtradeConfig, token: TokenPair): EtradeClient 
       view = "QUICK",
     }) =>
       get(
-        `/v1/accounts/${accountIdKey}/portfolio${qs({
+        `/v1/accounts/${account(accountIdKey)}/portfolio${qs({
           count,
+          pageNumber,
           sortBy,
           sortOrder,
           marketSession,
@@ -150,21 +187,21 @@ export function createClient(cfg: EtradeConfig, token: TokenPair): EtradeClient 
           view,
         })}`,
       ),
-    listTransactions: ({ accountIdKey, startDate, endDate, sortOrder = "DESC", marker, count = 50 }) =>
+    listTransactions: async ({ accountIdKey, startDate, endDate, sortOrder = "DESC", marker, count = 50 }) =>
       get(
-        `/v1/accounts/${accountIdKey}/transactions${qs({ startDate, endDate, sortOrder, marker, count })}`,
+        `/v1/accounts/${account(accountIdKey)}/transactions${qs({ startDate, endDate, sortOrder, marker, count })}`,
       ),
-    getTransaction: ({ accountIdKey, transactionId }) =>
-      get(`/v1/accounts/${accountIdKey}/transactions/${transactionId}`),
-    listOrders: ({ accountIdKey, count = 25, status, symbol, fromDate, toDate, marker }) =>
+    getTransaction: async ({ accountIdKey, transactionId }) =>
+      get(`/v1/accounts/${account(accountIdKey)}/transactions/${identifier(transactionId)}`),
+    listOrders: async ({ accountIdKey, count = 25, status, symbol, fromDate, toDate, marker }) =>
       get(
-        `/v1/accounts/${accountIdKey}/orders${qs({ count, status, symbol, fromDate, toDate, marker })}`,
+        `/v1/accounts/${account(accountIdKey)}/orders${qs({ count, status, symbol, fromDate, toDate, marker })}`,
       ),
-    previewOrder: (accountIdKey, req) =>
-      send(`/v1/accounts/${accountIdKey}/orders/preview`, "POST", { PreviewOrderRequest: req }),
-    placeOrder: (accountIdKey, req) =>
-      send(`/v1/accounts/${accountIdKey}/orders/place`, "POST", { PlaceOrderRequest: req }),
-    cancelOrder: (accountIdKey, orderId) =>
-      send(`/v1/accounts/${accountIdKey}/orders/cancel`, "PUT", { CancelOrderRequest: { orderId } }),
+    previewOrder: async (accountIdKey, req) =>
+      send(`/v1/accounts/${account(accountIdKey)}/orders/preview`, "POST", { PreviewOrderRequest: req }),
+    placeOrder: async (accountIdKey, req) =>
+      send(`/v1/accounts/${account(accountIdKey)}/orders/place`, "POST", { PlaceOrderRequest: req }),
+    cancelOrder: async (accountIdKey, orderId) =>
+      send(`/v1/accounts/${account(accountIdKey)}/orders/cancel`, "PUT", { CancelOrderRequest: { orderId } }),
   };
 }
