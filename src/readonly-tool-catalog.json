@@ -1,0 +1,227 @@
+[
+	{
+		"name": "etrade_list_accounts",
+		"description": "List the configured E*TRADE account for the authenticated user.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {},
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "etrade_get_balance",
+		"description": "Get cash balance, buying power, and NAV for an E*TRADE account.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"accountIdKey": {
+					"type": "string",
+					"description": "E*TRADE accountIdKey (not accountId) from etrade_list_accounts."
+				},
+				"instType": {
+					"type": "string",
+					"enum": ["BROKERAGE"],
+					"description": "Default BROKERAGE."
+				},
+				"realTimeNAV": {
+					"type": "boolean",
+					"description": "Default true."
+				}
+			},
+			"required": ["accountIdKey"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "etrade_get_portfolio",
+		"description": "Get current positions for an E*TRADE account.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"accountIdKey": {
+					"type": "string"
+				},
+				"pageNumber": {
+					"type": "integer",
+					"minimum": 1
+				},
+				"count": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 250,
+					"description": "Default 50."
+				},
+				"sortBy": {
+					"type": "string",
+					"description": "Default SYMBOL."
+				},
+				"sortOrder": {
+					"type": "string",
+					"enum": ["ASC", "DESC"],
+					"description": "Default ASC."
+				},
+				"marketSession": {
+					"type": "string",
+					"enum": ["REGULAR", "EXTENDED"],
+					"description": "Default REGULAR."
+				},
+				"totalsRequired": {
+					"type": "boolean"
+				},
+				"lotsRequired": {
+					"type": "boolean"
+				},
+				"view": {
+					"type": "string",
+					"enum": ["PERFORMANCE", "FUNDAMENTAL", "OPTIONSWATCH", "QUICK", "COMPLETE"],
+					"description": "Default QUICK. WARNING: OPTIONSWATCH silently drops most plain-equity rows (observed 9 of 18 positions returned 2026-06-11) \u2014 use QUICK for the full book and OPTIONSWATCH only for option marks."
+				}
+			},
+			"required": ["accountIdKey"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "etrade_list_transactions",
+		"description": "List transactions for an E*TRADE account in a date range.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"accountIdKey": {
+					"type": "string"
+				},
+				"startDate": {
+					"type": "string",
+					"description": "MMDDYYYY, no separators (e.g. 06112026). The API rejects MM/DD/YYYY with error 2004."
+				},
+				"endDate": {
+					"type": "string",
+					"description": "MMDDYYYY, no separators (e.g. 06112026). The API rejects MM/DD/YYYY with error 2004."
+				},
+				"sortOrder": {
+					"type": "string",
+					"enum": ["ASC", "DESC"],
+					"description": "Default DESC."
+				},
+				"marker": {
+					"type": "string",
+					"description": "Pagination cursor."
+				},
+				"count": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 50,
+					"description": "Default 50."
+				}
+			},
+			"required": ["accountIdKey"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "etrade_get_transaction",
+		"description": "Get detail for a specific E*TRADE transaction.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"accountIdKey": {
+					"type": "string"
+				},
+				"transactionId": {
+					"type": "string"
+				}
+			},
+			"required": ["accountIdKey", "transactionId"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "etrade_snapshot",
+		"description": "Snapshot of the configured E*TRADE account: balances + positions (+ optional recent transactions).",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"includeTransactions": {
+					"type": "boolean",
+					"description": "Default false."
+				},
+				"recentDays": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 90,
+					"description": "Default 7. Ignored unless includeTransactions=true."
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "etrade_list_orders",
+		"description": "List orders for an E*TRADE account (read-only). Use status=OPEN to see working orders or status=EXECUTED to confirm a fill before placing a paired stop.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"accountIdKey": {
+					"type": "string",
+					"description": "E*TRADE accountIdKey from etrade_list_accounts."
+				},
+				"status": {
+					"type": "string",
+					"enum": [
+						"OPEN",
+						"EXECUTED",
+						"CANCELLED",
+						"INDIVIDUAL_FILLS",
+						"CANCEL_REQUESTED",
+						"EXPIRED",
+						"REJECTED"
+					],
+					"description": "Filter by order status, e.g. OPEN to see working orders or EXECUTED to confirm fills."
+				},
+				"count": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100,
+					"description": "Default 25, max 100."
+				},
+				"symbol": {
+					"type": "string",
+					"description": "Filter to a single underlying symbol."
+				},
+				"marker": {
+					"type": "string",
+					"description": "Pagination marker from a prior response."
+				}
+			},
+			"required": ["accountIdKey"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	}
+]

@@ -1,5 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readSecret, writeSecret } from "./secret-storage.js";
 
 export type StoredToken = {
   env: "sandbox" | "prod";
@@ -9,25 +8,25 @@ export type StoredToken = {
   expires_at_midnight_et: string;
 };
 
-export function writeToken(filePath: string, token: StoredToken): void {
-  mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
-  writeFileSync(filePath, JSON.stringify(token, null, 2), { mode: 0o600 });
-  chmodSync(filePath, 0o600);
+export function writeToken(filePath: string, token: StoredToken, encryptionKey?: string): void {
+  writeSecret(filePath, token, encryptionKey);
 }
 
-export function readToken(filePath: string): StoredToken | null {
+export function readToken(filePath: string, encryptionKey?: string): StoredToken | null {
   try {
-    const raw = readFileSync(filePath, "utf8");
-    const parsed = JSON.parse(raw) as StoredToken;
-    if (!parsed.oauth_token || !parsed.oauth_token_secret) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+    const token = readSecret(filePath, encryptionKey) as StoredToken;
+    if (!token || (token.env !== "sandbox" && token.env !== "prod") ||
+        typeof token.oauth_token !== "string" || !token.oauth_token ||
+        typeof token.oauth_token_secret !== "string" || !token.oauth_token_secret ||
+        typeof token.obtained_at !== "string" || !Number.isFinite(Date.parse(token.obtained_at)) ||
+        typeof token.expires_at_midnight_et !== "string" || !Number.isFinite(Date.parse(token.expires_at_midnight_et))) return null;
+    return token;
+  } catch { return null; }
 }
 
 export function isTokenExpired(token: StoredToken, now: Date = new Date()): boolean {
-  return now.getTime() >= new Date(token.expires_at_midnight_et).getTime();
+  const expiry = Date.parse(token.expires_at_midnight_et);
+  return !Number.isFinite(expiry) || now.getTime() >= expiry;
 }
 
 /**
@@ -46,9 +45,9 @@ export function computeEtMidnightExpiry(now: Date = new Date()): string {
   const m = nyParts.find((p) => p.type === "month")!.value;
   const d = nyParts.find((p) => p.type === "day")!.value;
 
-  // Construct "today at 00:00:00" in NY, then advance 24h.
-  const todayNyMidnightUtc = zonedDateToUtc(`${y}-${m}-${d}T00:00:00`, "America/New_York");
-  const tomorrowNyMidnightUtc = new Date(todayNyMidnightUtc.getTime() + 24 * 60 * 60 * 1000);
+  // Advance the ET calendar day; a DST transition day can have 23 or 25 hours.
+  const tomorrow = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d) + 1)).toISOString().slice(0, 10);
+  const tomorrowNyMidnightUtc = zonedDateToUtc(`${tomorrow}T00:00:00`, "America/New_York");
 
   // Compute the offset that applies at tomorrow-midnight-NY.
   const offset = getTzOffsetString(tomorrowNyMidnightUtc, "America/New_York");
@@ -68,14 +67,15 @@ export function computeEtMidnightExpiry(now: Date = new Date()): string {
 function zonedDateToUtc(isoLocal: string, timeZone: string): Date {
   // Interpret the string as local-to-timeZone. We construct a UTC date, then correct by the zone offset.
   const asIfUtc = new Date(`${isoLocal}Z`);
-  const offsetMinutes = getTzOffsetMinutes(asIfUtc, timeZone);
-  return new Date(asIfUtc.getTime() - offsetMinutes * 60 * 1000);
+  let instant = asIfUtc;
+  for (let i = 0; i < 3; i++) instant = new Date(asIfUtc.getTime() - getTzOffsetMinutes(instant, timeZone) * 60 * 1000);
+  return instant;
 }
 
 function getTzOffsetMinutes(date: Date, timeZone: string): number {
   const dtf = new Intl.DateTimeFormat("en-US", {
     timeZone,
-    hour12: false,
+    hourCycle: "h23",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

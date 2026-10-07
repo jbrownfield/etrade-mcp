@@ -108,3 +108,11 @@ describe("pickLoginTarget", () => {
     expect(t).toBeUndefined();
   });
 });
+
+describe("login origin validation", () => {
+  for (const url of ["https://example.invalid/login", "https://us.etrade.com.example.invalid/login", "http://us.etrade.com/etx/pxy/login", "https://us.etrade.com:8443/etx/pxy/login"]) {
+    test(`rejects a forged login title at ${url}`, () => {
+      expect(pickLoginTarget([{ type: "page", title: "Log on to E*TRADE", url, webSocketDebuggerUrl: "ws://localhost:9333/devtools/page/dummy" }])).toBeUndefined();
+    });
+  }
+});

@@ -4,6 +4,7 @@ import type { EtradeClient } from "../client.js";
 
 const argsSchema = {
   accountIdKey: z.string(),
+  pageNumber: z.number().int().min(1).optional(),
   count: z.number().int().min(1).max(250).optional().describe("Default 50."),
   sortBy: z.string().optional().describe("Default SYMBOL."),
   sortOrder: z.enum(["ASC", "DESC"]).optional().describe("Default ASC."),

@@ -1,10 +1,13 @@
 # etrade-mcp
 
+This repository is a fork of [sblattj/etrade-mcp](https://github.com/sblattj/etrade-mcp)
+by Stephen Blatt, with additional hardening for read-only account tracking and token handling.
+
 [![npm version](https://img.shields.io/npm/v/etrade-mcp.svg)](https://www.npmjs.com/package/etrade-mcp)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/sblattj/etrade-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/sblattj/etrade-mcp/actions/workflows/ci.yml)
 
-**MCP server for E\*TRADE — OAuth 1.0a + VIP-TOTP auto-renew, account reads always-on, order
+**MCP server for E\*TRADE — OAuth 1.0a + explicit token renewal, account reads always-on, order
 placement strictly opt-in.**
 
 Talk to your E\*TRADE account from Claude Code (or any MCP client): list accounts, check balances
@@ -112,8 +115,8 @@ add `--env ETRADE_ALLOW_ORDERS=1` and register it as a *separate*, deliberately-
 see [Tools](#tools) below.
 
 Once you've validated the flow against sandbox, repeat with a production key (`ETRADE_ENV=prod`,
-`ETRADE_PROD_API_KEY` / `ETRADE_PROD_API_SECRET`) — `ETRADE_ENV` defaults to `prod`, so a bare
-install targets your real account unless you explicitly opt into sandbox.
+`ETRADE_PROD_API_KEY` / `ETRADE_PROD_API_SECRET`). `ETRADE_ENV` is required; missing or misspelled
+values fail before authorization or API requests.
 
 ## Getting an E\*TRADE developer key
 
@@ -146,7 +149,22 @@ browser, exchange a short verifier code for an access token. This package implem
   argument, or `ETRADE_VERIFIER`) completes it later.
 
 The resulting access token is written to `~/.config/etrade-mcp/tokens.<env>.json` with `0600`
-permissions.
+permissions. Pending and access-token writes use atomic replacement. To encrypt both at rest,
+set `ETRADE_TOKEN_ENCRYPTION_KEY` to a base64-encoded random 32-byte key supplied by a secret
+manager. Use the same key for auth, renewal, and the MCP server. Storage uses AES-256-GCM;
+the key is never written to the token file. Wrong/missing keys, damaged ciphertext, and plaintext
+files in encrypted mode are rejected. Existing plaintext users must authenticate again after
+enabling encryption; there is no automatic plaintext fallback or migration. Protect or remove
+any old plaintext copies and backups separately. A forced process kill or power loss can leave
+an owner-only `.tmp` file in the token directory before atomic replacement completes. It is
+encrypted when encryption is enabled. Inspect old temporary copies only while all writers are
+stopped; automatic age-based deletion could remove a paused writer's active file. This does not protect against a process that
+can read the launcher environment or the server memory. File-only storage remains the default
+for compatibility.
+
+The MCP server does not automatically renew idle sessions; invoke the renewal CLI separately.
+Renewal requires the documented confirmation text or a complete returned token pair. Empty,
+partial, or unreadable responses are unconfirmed; the stored token is left unchanged.
 
 **Expiry.** E\*TRADE access tokens expire at midnight US Eastern (there is no refresh token) and go
 idle after about 2 hours without an API call.
@@ -168,15 +186,30 @@ E\*TRADE's 2FA is Symantec VIP Access. If you provision a VIP soft-token credent
 6-digit code — RFC 6238 TOTP generated locally with `node:crypto` only (no network call, no
 third-party TOTP dependency) — so you don't need your phone during the browser login step.
 
-### Optional: browser auto-fill for the login page
+### Browser login
 
-`npx -y --package=etrade-mcp etrade-mcp-login-fill` (or, from a clone, `bun run login:fill`; reads
-`ETRADE_LOGIN_USERNAME` / `ETRADE_LOGIN_PASSWORD`) drives a
-Chromium-family browser already open on E\*TRADE's login page over the Chrome DevTools Protocol
-(`CDP_PORT`, default `9333`), filling the username and password fields with trusted input events. It
-fills only those two fields — never the 2FA/verifier step — and never prints the credential values,
-only their lengths. It's a building block for your own re-auth automation, not a turnkey unattended
-login.
+The password-autofill CLI is disabled and directs users to manual browser login. It exits
+before contacting a debugging browser or reading login credentials. The optional TOTP CLI
+remains separate from the MCP server; a restricted tracker should not provision its secret.
+
+### Restricted read-only deployment
+
+Use a controlled working directory and a secret-manager launcher that supplies:
+
+- `ETRADE_ENV=sandbox` (switch explicitly to `prod` only after sandbox validation).
+- `ETRADE_ALLOW_ORDERS=0` to disable both MCP write tools and client write requests.
+- `ETRADE_ALLOWED_ACCOUNT_IDS` with the selected `accountIdKey`, or a comma-separated list.
+  Discovery filters out other accounts and all account-scoped reads/writes enforce the list.
+  An unset list preserves the upstream all-account behavior; an empty value is rejected.
+  A configured key missing from discovery is an error, including partially missing lists.
+- `ETRADE_LOAD_DOTENV=0` to prevent the application from loading a working-directory `.env`.
+- `ETRADE_TOKEN_ENCRYPTION_KEY` and the appropriate consumer credentials, injected securely.
+
+Launch the built server with Node (`node dist/mcp.js`). Bun loads `.env` files itself before
+application startup; package source scripts use `bun --no-env-file`, and direct source launches
+must use that flag too.
+Do not give this launcher login-password or TOTP secrets. These are application restrictions,
+not broker-enforced credential scopes or isolation from other programs running as your user.
 
 ## Tools
 
@@ -210,18 +243,38 @@ type — a "stop attached to an entry" is done client-side: place the entry, con
 `accountIdKey` (used across every account-scoped tool) is the obfuscated key `etrade_list_accounts`
 returns — not the plain account number.
 
+Snapshots follow transaction markers and portfolio page numbers. Every recent transaction
+includes `accountIdKey`. `complete` is false if any requested operation fails, a response is
+malformed, or pagination cannot finish (repeated/missing continuations or the 1,000-page limit).
+Per-account `errors` identify the affected operation, including transactions. Do not treat totals
+as complete when `complete` is false; existing numeric zero defaults are retained for compatibility.
+Snapshot date windows use Eastern calendar dates. `recentDays=7` starts seven calendar days
+before today; with inclusive broker endpoints this covers eight dates. Direct portfolio reads expose `pageNumber`;
+direct transaction reads remain single-page calls with a caller-supplied marker. Snapshot pagination
+is not a durable transaction ledger or a point-in-time guarantee while broker data changes.
+On transaction failure, already retrieved rows remain available for inspection but must be
+treated as partial. Completion follows documented continuation/count conventions, including
+short terminal pages; actual multi-page sandbox behavior still needs integration verification.
+See the official [portfolio](https://apisb.etrade.com/docs/api/account/api-portfolio-v1.html) and
+[transaction](https://apisb.etrade.com/docs/api/account/api-transaction-v1.html) pagination contracts.
+
+`BROKERAGE` is the supported balance institution type, including for IRA accounts. `IRA` describes
+an account type, not an institution type. Raw upstream failure bodies are excluded from errors; only numeric broker error codes are retained;
+ambiguous order-write responses instruct callers to verify order status before retrying.
+
 ## Environment variables
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `ETRADE_ENV` | optional | `sandbox` or `prod`. Defaults to `prod`. |
+| `ETRADE_ENV` | yes | Explicitly `sandbox` or `prod`; all other values are rejected. |
 | `ETRADE_SANDBOX_API_KEY` / `ETRADE_SANDBOX_API_KEY_SECRET` | for `ETRADE_ENV=sandbox` | Your E\*TRADE sandbox consumer key/secret. |
 | `ETRADE_PROD_API_KEY` / `ETRADE_PROD_API_SECRET` | for `ETRADE_ENV=prod` | Your E\*TRADE production consumer key/secret. |
 | `ETRADE_ALLOW_ORDERS` | optional | Set to `1` to register the write tools (`preview`/`place`/`cancel`). Anything else, or unset, is read-only. |
+| `ETRADE_ALLOWED_ACCOUNT_IDS` | optional | Comma-separated account keys; filters discovery and restricts account requests. |
+| `ETRADE_TOKEN_ENCRYPTION_KEY` | optional | Base64 random 32-byte key from a secret manager; encrypts pending and access tokens. |
+| `ETRADE_LOAD_DOTENV` | optional | Set to `0` to disable application-level `.env` loading. |
 | `ETRADE_VERIFIER` | optional | Verifier code for `etrade-mcp-auth-finish` (or pass it as a CLI argument). |
 | `ETRADE_TOTP_SECRET` | optional | Base32 VIP TOTP secret, for `etrade-mcp-totp`. |
-| `ETRADE_LOGIN_USERNAME` / `ETRADE_LOGIN_PASSWORD` | optional | Used only by `etrade-mcp-login-fill`'s browser automation. |
-| `CDP_PORT` | optional | Debug port for `etrade-mcp-login-fill`'s browser automation. Defaults to `9333`. |
 
 ## Why this exists
 
@@ -277,3 +330,9 @@ no external service beyond E\*TRADE's own API.
 ## License
 
 [MIT](LICENSE) © 2026 Stephen Blatt
+
+## Optional on-demand read-only launcher
+
+The fork includes `etrade-mcp-readonly`, a Node 22+ entrypoint for macOS/Linux that loads credentials from a configured FIFO only when a tool call needs them. It requires encrypted tokens and one explicitly selected account. See [from-scratch installation guide](docs/readonly-launcher.md). Existing `etrade-mcp` usage is unchanged.
+
+An optional **experimental** [installation skill](skills/install-etrade-readonly/SKILL.md) can guide setup. See [how to install the skill](docs/readonly-launcher.md#optional-experimental-installation-skill); it does not replace manual installation or grant broker access.

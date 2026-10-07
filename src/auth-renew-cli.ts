@@ -27,9 +27,9 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 
 // Loads a .env from the current working directory, if present. Real
 // environment variables always take precedence.
-dotenv.config();
+if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
 const cfg = loadEnv(process.env);
-const token = readToken(cfg.tokenFilePath);
+const token = readToken(cfg.tokenFilePath, cfg.tokenEncryptionKey);
 const r = await renewAccessToken(cfg, token);
 if (r.renewed) {
   console.error(`[etrade-mcp] ✓ access token RENEWED (browser-free) — idle clock reset, valid until ${token?.expires_at_midnight_et ?? "midnight ET"}`);

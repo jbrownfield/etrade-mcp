@@ -18,7 +18,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 
 // Loads a .env from the current working directory, if present. Real
 // environment variables always take precedence.
-dotenv.config();
+if (process.env.ETRADE_LOAD_DOTENV !== "0") dotenv.config();
 const cfg = loadEnv(process.env);
 console.error(`[etrade-mcp] env=${cfg.env} — requesting request token...`);
 const r = await fetchRequestToken(cfg);

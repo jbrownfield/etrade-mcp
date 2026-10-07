@@ -10,6 +10,8 @@ bun install              # install deps
 bun test src/__tests__   # run the unit test suite (integration test is separate, see below)
 bun run build             # bundle dist/ (node-portable, target: node, format: esm)
 bun run typecheck         # tsc --noEmit
+node scripts/verify-node-storage.mjs  # Node crypto behavior, after build
+node scripts/verify-node-login.mjs    # npm-style symlink invocation, after build
 ```
 
 `bun test src/__tests__` should show all tests passing (a handful of integration-only cases are
@@ -37,6 +39,7 @@ one.
 
 ```bash
 bun run build
+ETRADE_ENV=prod ETRADE_ALLOW_ORDERS=0 ETRADE_LOAD_DOTENV=0 \
 ETRADE_PROD_API_KEY=dummy ETRADE_PROD_API_SECRET=dummy \
   node docs/demo-handshake.mjs node dist/mcp.js
 ```
@@ -60,3 +63,7 @@ needed just to prove the server boots and lists its tools.
 
 Use the issue templates. Please never include your E*TRADE API key, OAuth token, account number,
 or any other credential in an issue — redact it before pasting logs.
+
+## Read-only launcher verification
+
+Use Node 22 or newer on macOS/Linux for the optional FIFO launcher. Run `bun run build` before `bun run test:node`; the latter includes the existing Node regressions plus the launcher catalog, credential isolation, reconnect and process shutdown checks. Source unit tests still run without a build. The launcher is executed from `dist`, not the Bun `dev` script. All these checks use dummy credentials.

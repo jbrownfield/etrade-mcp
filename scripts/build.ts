@@ -27,6 +27,7 @@ const DIST = resolve(ROOT, "dist");
 // name -> whether it's a CLI (gets the node shebang + exec bit) or a plain library module.
 const ENTRYPOINTS: Record<string, { src: string; bin: boolean }> = {
 	mcp: { src: "src/mcp.ts", bin: true },
+	"mcp-readonly": { src: "src/mcp-readonly.ts", bin: true },
 	auth: { src: "src/auth.ts", bin: true },
 	"auth-start": { src: "src/auth-start.ts", bin: true },
 	"auth-finish": { src: "src/auth-finish.ts", bin: true },
@@ -55,6 +56,7 @@ async function main() {
 
 	const result = await Bun.build({
 		entrypoints,
+		root: resolve(ROOT, "src"),
 		outdir: DIST,
 		target: "node",
 		format: "esm",

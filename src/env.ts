@@ -1,3 +1,5 @@
+import { encryptionKey } from "./secret-storage.js";
+
 export type EtradeEnv = "sandbox" | "prod";
 
 export type EtradeConfig = {
@@ -13,14 +15,22 @@ export type EtradeConfig = {
    * unless you deliberately opt in with `ETRADE_ALLOW_ORDERS=1`.
    */
   allowOrders: boolean;
+  allowedAccountIds?: string[];
+  tokenEncryptionKey?: string;
 };
 
 const AUTHORIZE_URL = "https://us.etrade.com/e/t/etws/authorize";
 
 export function loadEnv(source: Record<string, string | undefined> = process.env): EtradeConfig {
-  // Defaults to prod: this server targets your real account. Opt into the
-  // sandbox explicitly with ETRADE_ENV=sandbox.
-  const env: EtradeEnv = source.ETRADE_ENV === "sandbox" ? "sandbox" : "prod";
+  const env = source.ETRADE_ENV;
+  if (env !== "sandbox" && env !== "prod") throw new Error("ETRADE_ENV must explicitly be sandbox or prod.");
+  const allowedAccountIds = source.ETRADE_ALLOWED_ACCOUNT_IDS?.split(",").map(id => id.trim());
+  if (allowedAccountIds?.some(id => !/^[A-Za-z0-9_-]+$/.test(id))) {
+    throw new Error("ETRADE_ALLOWED_ACCOUNT_IDS must contain nonempty account keys.");
+  }
+
+  const tokenEncryptionKey = source.ETRADE_TOKEN_ENCRYPTION_KEY;
+  if (tokenEncryptionKey !== undefined) encryptionKey(tokenEncryptionKey);
 
   const keyVar = env === "prod" ? "ETRADE_PROD_API_KEY" : "ETRADE_SANDBOX_API_KEY";
   const secretVar = env === "prod" ? "ETRADE_PROD_API_SECRET" : "ETRADE_SANDBOX_API_KEY_SECRET";
@@ -36,6 +46,8 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   const home = source.HOME ?? process.env.HOME ?? "";
   return {
     env,
+    allowedAccountIds,
+    tokenEncryptionKey,
     consumerKey,
     consumerSecret,
     apiBaseUrl: env === "prod" ? "https://api.etrade.com" : "https://apisb.etrade.com",
