@@ -1,0 +1,5 @@
+{
+  "environment": "sandbox",
+  "credentialMount": "credentials.pipe",
+  "accountIdKey": "REPLACE_WITH_YOUR_ACCOUNT_KEY"
+}

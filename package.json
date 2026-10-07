@@ -30,7 +30,11 @@
 	"files": [
 		"dist/",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"docs/readonly-launcher.md",
+		"skills/install-etrade-readonly/",
+		"examples/readonly-config.example.json",
+		"changes.md"
 	],
 	"bin": {
 		"etrade-mcp": "dist/mcp.js",
@@ -39,7 +43,8 @@
 		"etrade-mcp-auth-finish": "dist/auth-finish.js",
 		"etrade-mcp-renew": "dist/auth-renew-cli.js",
 		"etrade-mcp-totp": "dist/totp-cli.js",
-		"etrade-mcp-login-fill": "dist/login-fill.js"
+		"etrade-mcp-login-fill": "dist/login-fill.js",
+		"etrade-mcp-readonly": "dist/mcp-readonly.js"
 	},
 	"scripts": {
 		"dev": "bun --no-env-file run src/mcp.ts",
@@ -53,10 +58,11 @@
 		"typecheck": "tsc --noEmit",
 		"renew": "bun --no-env-file run src/auth-renew-cli.ts",
 		"build": "bun scripts/build.ts",
-		"prepublishOnly": "bun run build"
+		"prepublishOnly": "bun run build",
+		"test:node": "node scripts/verify-node-storage.mjs && node scripts/verify-node-login.mjs && node scripts/verify-node-readonly.mjs"
 	},
 	"dependencies": {
-		"@modelcontextprotocol/sdk": "^1.11",
+		"@modelcontextprotocol/sdk": "^1.32.1",
 		"dotenv": "^16.5",
 		"oauth-1.0a": "^2.2.6",
 		"zod": "^3.23"

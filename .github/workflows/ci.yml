@@ -8,7 +8,10 @@ on:
 jobs:
   test:
     name: test + build + handshake smoke
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
@@ -19,23 +22,22 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run tests
-        run: bun test src/__tests__
-
       - name: Build
         run: bun run build
 
-      - name: Node token storage regression
-        run: node scripts/verify-node-storage.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-      - name: Node disabled login regression
-        run: node scripts/verify-node-login.mjs
+      - name: Source unit tests
+        run: bun run test
 
-      # package.json declares no `engines.node`, so this smoke deliberately runs
-      # under ubuntu-latest's pre-installed Node rather than pinning one via
-      # actions/setup-node — the same `node dist/mcp.js` runtime real consumers
-      # hit via `npx etrade-mcp`. If an `engines.node` constraint is ever added,
-      # add actions/setup-node here (pinned to satisfy it) before this step.
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Built Node regressions
+        run: bun run test:node
+
       - name: MCP stdio handshake smoke (docs/demo-handshake.mjs)
         env:
           # Dummy, non-secret values. loadEnv() only checks these are non-empty

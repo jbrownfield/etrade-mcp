@@ -63,3 +63,7 @@ needed just to prove the server boots and lists its tools.
 
 Use the issue templates. Please never include your E*TRADE API key, OAuth token, account number,
 or any other credential in an issue — redact it before pasting logs.
+
+## Read-only launcher verification
+
+Use Node 22 or newer on macOS/Linux for the optional FIFO launcher. Run `bun run build` before `bun run test:node`; the latter includes the existing Node regressions plus the launcher catalog, credential isolation, reconnect and process shutdown checks. Source unit tests still run without a build. The launcher is executed from `dist`, not the Bun `dev` script. All these checks use dummy credentials.

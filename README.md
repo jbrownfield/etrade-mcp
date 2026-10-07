@@ -330,3 +330,9 @@ no external service beyond E\*TRADE's own API.
 ## License
 
 [MIT](LICENSE) © 2026 Stephen Blatt
+
+## Optional on-demand read-only launcher
+
+The fork includes `etrade-mcp-readonly`, a Node 22+ entrypoint for macOS/Linux that loads credentials from a configured FIFO only when a tool call needs them. It requires encrypted tokens and one explicitly selected account. See [from-scratch installation guide](docs/readonly-launcher.md). Existing `etrade-mcp` usage is unchanged.
+
+An optional **experimental** [installation skill](skills/install-etrade-readonly/SKILL.md) can guide setup. See [how to install the skill](docs/readonly-launcher.md#optional-experimental-installation-skill); it does not replace manual installation or grant broker access.

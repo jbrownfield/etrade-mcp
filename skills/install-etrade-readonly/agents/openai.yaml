@@ -1,0 +1,4 @@
+interface:
+  display_name: "E*TRADE Read-only Setup (Experimental)"
+  short_description: "Experimental setup for the read-only E*TRADE MCP"
+  default_prompt: "Use $install-etrade-readonly to set up this fork's experimental read-only E*TRADE MCP using my own credentials and private local configuration."

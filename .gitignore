@@ -7,3 +7,7 @@ dist/
 ANALYSIS.md
 LAUNCH-PLAN.md
 *.local
+
+# Private launcher configuration and local state
+*.private.json
+.local-state/
